@@ -48,11 +48,11 @@ enum Token {
     Eof,
 }
 
-struct Scanner {
+struct Tokenizer {
     script: String,
 }
 
-impl Scanner {
+impl Tokenizer {
     pub fn new(script: String) -> Self {
         Self { script }
     }
@@ -64,7 +64,7 @@ impl Scanner {
 
         let mut line = 0usize;
 
-        while let Some(c) = iter.next() {
+        while let Some(c) = iter.peek() {
             if let Some(token) = match c {
                 '(' => Some(Token::LeftParen),
                 ')' => Some(Token::RightParen),
@@ -76,46 +76,61 @@ impl Scanner {
                 '-' => Some(Token::Minus),
                 '+' => Some(Token::Plus),
                 '*' => Some(Token::Star),
-                '!' => match iter.peek() {
-                    Some('=') => {
-                        iter.next();
-                        Some(Token::BangEqual)
+                '!' => {
+                    iter.next();
+                    match iter.peek() {
+                        Some('=') => Some(Token::BangEqual),
+                        _ => Some(Token::Bang),
                     }
-                    _ => Some(Token::Bang),
-                },
-                '=' => match iter.peek() {
-                    Some('=') => {
-                        iter.next();
-                        Some(Token::EqualEqual)
-                    }
-                    _ => Some(Token::Equal),
-                },
-                '>' => match iter.peek() {
-                    Some('=') => {
-                        iter.next();
-                        Some(Token::GreaterEqual)
-                    }
-                    _ => Some(Token::Greater),
-                },
-                '<' => match iter.peek() {
-                    Some('=') => {
-                        iter.next();
-                        Some(Token::LessEqual)
-                    }
-                    _ => Some(Token::Less),
-                },
-                '/' => match iter.peek() {
-                    Some('/') => {
-                        while let Some(c) = iter.next() {
-                            if c == '\n' {
-                                break;
-                            }
+                }
+                '=' => {
+                    iter.next();
+                    match iter.peek() {
+                        Some('=') => {
+                            iter.next();
+                            Some(Token::EqualEqual)
                         }
-                        None
+                        _ => Some(Token::Equal),
                     }
-                    _ => Some(Token::Slash),
-                },
+                }
+                '>' => {
+                    iter.next();
+                    match iter.peek() {
+                        Some('=') => {
+                            iter.next();
+                            Some(Token::GreaterEqual)
+                        }
+                        _ => Some(Token::Greater),
+                    }
+                }
+                '<' => {
+                    iter.next();
+                    match iter.peek() {
+                        Some('=') => {
+                            iter.next();
+                            Some(Token::LessEqual)
+                        }
+                        _ => Some(Token::Less),
+                    }
+                }
+                '/' => {
+                    iter.next();
+                    match iter.peek() {
+                        Some('/') => {
+                            while let Some(c) = iter.peek() {
+                                if *c == '\n' {
+                                    break;
+                                } else {
+                                    iter.next();
+                                }
+                            }
+                            None
+                        }
+                        _ => Some(Token::Slash),
+                    }
+                }
                 '"' => {
+                    iter.next();
                     let string = iter
                         .clone()
                         .take_while(|c| {
@@ -131,7 +146,7 @@ impl Scanner {
                         })
                         .collect::<String>();
 
-                    if iter.next() != Some('"') {
+                    if iter.peek() != Some(&'"') {
                         eprintln!("Missing closing \" in line {}", line);
                         std::process::exit(1);
                     }
@@ -145,26 +160,22 @@ impl Scanner {
                 }
                 _ => {
                     if c.is_ascii_digit() {
-                        if let Ok(number) = {
-                            let mut number_str = iter
-                                .clone()
-                                .take_while(|c| {
-                                    if *c == '\n' {
-                                        line += 1
-                                    }
+                        if let Ok(number) = iter
+                            .clone()
+                            .take_while(|c| {
+                                if *c == '\n' {
+                                    line += 1
+                                }
 
-                                    if c.is_ascii_digit() || *c == '.' {
-                                        iter.next();
-                                    }
+                                if c.is_ascii_digit() || *c == '.' {
+                                    iter.next();
+                                }
 
-                                    c.is_ascii_digit() || *c == '.'
-                                })
-                                .collect::<String>();
-
-                            number_str.insert(0, c);
-
-                            number_str.parse::<f32>()
-                        } {
+                                c.is_ascii_digit() || *c == '.'
+                            })
+                            .collect::<String>()
+                            .parse::<f32>()
+                        {
                             Some(Token::Number(number))
                         } else {
                             eprintln!("Unexpected number literal at line {}", line);
@@ -178,15 +189,16 @@ impl Scanner {
             } {
                 tokens.push(token);
             }
-        }
 
+            iter.next();
+        }
         tokens.push(Token::Eof);
         tokens
     }
 }
 
 fn run(script: String) {
-    for token in Scanner::new(script).tokenize() {
+    for token in Tokenizer::new(script).tokenize() {
         println!("{:?}", &token);
     }
 }
@@ -217,7 +229,7 @@ mod test {
 "Hello World!" // String
 1234
 12.34"#;
-        let mut tokens = Scanner::new(script.to_string()).tokenize().into_iter();
+        let mut tokens = Tokenizer::new(script.to_string()).tokenize().into_iter();
 
         assert_eq!(tokens.next(), Some(Token::LeftParen));
         assert_eq!(tokens.next(), Some(Token::LeftParen));
