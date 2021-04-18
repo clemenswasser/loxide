@@ -1,5 +1,5 @@
 #[derive(Debug, PartialEq)]
-enum Token {
+enum Token<'a> {
     LeftParen,
     RightParen,
     LeftBrace,
@@ -24,7 +24,7 @@ enum Token {
 
     // Literals.
     Identifier,
-    String(String),
+    String(&'a str),
     Number(f32),
 
     // Keywords.
@@ -48,23 +48,23 @@ enum Token {
     Eof,
 }
 
-struct Tokenizer {
-    script: String,
+struct Tokenizer<'a> {
+    script: &'a str,
 }
 
-impl Tokenizer {
-    pub fn new(script: String) -> Self {
+impl<'a> Tokenizer<'a> {
+    pub fn new(script: &'a str) -> Self {
         Self { script }
     }
 
     pub fn tokenize(&self) -> Vec<Token> {
         let mut tokens = Vec::new();
 
-        let mut iter = self.script.chars().peekable();
+        let mut iter = self.script.chars().enumerate().peekable();
 
         let mut line = 0usize;
 
-        while let Some(c) = iter.peek() {
+        while let Some(&(i, c)) = iter.peek() {
             if let Some(token) = match c {
                 '(' => Some(Token::LeftParen),
                 ')' => Some(Token::RightParen),
@@ -79,45 +79,49 @@ impl Tokenizer {
                 '!' => {
                     iter.next();
                     match iter.peek() {
-                        Some('=') => Some(Token::BangEqual),
-                        _ => Some(Token::Bang),
+                        Some((_, '=')) => Some(Token::BangEqual),
+                        Some(_) => Some(Token::Bang),
+                        _ => unimplemented!(),
                     }
                 }
                 '=' => {
                     iter.next();
                     match iter.peek() {
-                        Some('=') => {
+                        Some((_, '=')) => {
                             iter.next();
                             Some(Token::EqualEqual)
                         }
-                        _ => Some(Token::Equal),
+                        Some(_) => Some(Token::Equal),
+                        _ => unimplemented!(),
                     }
                 }
                 '>' => {
                     iter.next();
                     match iter.peek() {
-                        Some('=') => {
+                        Some((_, '=')) => {
                             iter.next();
                             Some(Token::GreaterEqual)
                         }
-                        _ => Some(Token::Greater),
+                        Some(_) => Some(Token::Greater),
+                        _ => unimplemented!(),
                     }
                 }
                 '<' => {
                     iter.next();
                     match iter.peek() {
-                        Some('=') => {
+                        Some((_, '=')) => {
                             iter.next();
                             Some(Token::LessEqual)
                         }
-                        _ => Some(Token::Less),
+                        Some(_) => Some(Token::Less),
+                        _ => unimplemented!(),
                     }
                 }
                 '/' => {
                     iter.next();
                     match iter.peek() {
-                        Some('/') => {
-                            while let Some(c) = iter.peek() {
+                        Some((_, '/')) => {
+                            while let Some((_, c)) = iter.peek() {
                                 if *c == '\n' {
                                     break;
                                 } else {
@@ -126,14 +130,16 @@ impl Tokenizer {
                             }
                             None
                         }
-                        _ => Some(Token::Slash),
+                        Some(_) => Some(Token::Slash),
+                        _ => unimplemented!(),
                     }
                 }
                 '"' => {
                     iter.next();
-                    let string = iter
+
+                    let chars = iter
                         .clone()
-                        .take_while(|c| {
+                        .take_while(|(_, c)| {
                             if *c == '\n' {
                                 line += 1
                             }
@@ -144,14 +150,14 @@ impl Tokenizer {
 
                             *c != '"'
                         })
-                        .collect::<String>();
+                        .count();
 
-                    if iter.peek() != Some(&'"') {
-                        eprintln!("Missing closing \" in line {}", line);
-                        std::process::exit(1);
+                    match iter.peek() {
+                        Some((_, '"')) => {}
+                        _ => panic!("Missing closing \" in line {}", line),
                     }
 
-                    Some(Token::String(string))
+                    Some(Token::String(&self.script[i + 1..i + 1 + chars]))
                 }
                 ' ' | '\r' | '\t' => None,
                 '\n' => {
@@ -160,9 +166,9 @@ impl Tokenizer {
                 }
                 _ => {
                     if c.is_ascii_digit() {
-                        if let Ok(number) = iter
+                        if let Ok(number) = self.script[i..i + iter
                             .clone()
-                            .take_while(|c| {
+                            .take_while(|(_, c)| {
                                 if *c == '\n' {
                                     line += 1
                                 }
@@ -173,17 +179,15 @@ impl Tokenizer {
 
                                 c.is_ascii_digit() || *c == '.'
                             })
-                            .collect::<String>()
+                            .count()]
                             .parse::<f32>()
                         {
                             Some(Token::Number(number))
                         } else {
-                            eprintln!("Unexpected number literal at line {}", line);
-                            std::process::exit(1);
+                            panic!("Unexpected number literal at line {}", line);
                         }
                     } else {
-                        eprintln!("Unexpected token at line {}", line);
-                        std::process::exit(1);
+                        panic!("Unexpected token at line {}", line);
                     }
                 }
             } {
@@ -198,7 +202,7 @@ impl Tokenizer {
 }
 
 fn run(script: String) {
-    for token in Tokenizer::new(script).tokenize() {
+    for token in Tokenizer::new(script.as_str()).tokenize() {
         println!("{:?}", &token);
     }
 }
@@ -213,8 +217,7 @@ fn main() {
     {
         run(script);
     } else {
-        eprintln!("Usage: loxide <script>");
-        std::process::exit(1);
+        panic!("Usage: loxide <script>");
     }
 }
 
@@ -223,13 +226,16 @@ mod test {
 
     #[test]
     fn tokenize() {
-        let script = r#"// Comment test
-(( )){} // Grouping
-! * + - / = < > == <= >= != // Operators
-"Hello World!" // String
-1234
-12.34"#;
-        let mut tokens = Tokenizer::new(script.to_string()).tokenize().into_iter();
+        let script = "// Comment test\n\
+                           (( )){}                     // Grouping\n\
+                           ! * + - / = < > == <= >= != // Operators\n\
+                           \"Hello World!\"              // String\n\
+                           1234                        // Number\n\
+                           12.34                       // Number";
+
+        eprintln!("{}", script);
+        let tokenizer = Tokenizer::new(script);
+        let mut tokens = tokenizer.tokenize().into_iter();
 
         assert_eq!(tokens.next(), Some(Token::LeftParen));
         assert_eq!(tokens.next(), Some(Token::LeftParen));
@@ -251,10 +257,7 @@ mod test {
         assert_eq!(tokens.next(), Some(Token::GreaterEqual));
         assert_eq!(tokens.next(), Some(Token::BangEqual));
 
-        assert_eq!(
-            tokens.next(),
-            Some(Token::String("Hello World!".to_string()))
-        );
+        assert_eq!(tokens.next(), Some(Token::String("Hello World!")));
 
         assert_eq!(tokens.next(), Some(Token::Number(1234.)));
 
