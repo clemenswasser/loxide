@@ -212,8 +212,8 @@ fn main() {
         .nth(1)
         .map(std::path::PathBuf::from)
         .map(std::fs::read_to_string)
-        .filter(Result::is_ok)
-        .map(Result::unwrap)
+        .map(Result::ok)
+        .flatten()
     {
         run(script);
     } else {
